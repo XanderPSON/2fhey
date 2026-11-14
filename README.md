@@ -1,3 +1,30 @@
+# 2FHey (Xander's fork)
+
+## This fork
+
+Fork of [SoFriendly/2fhey](https://github.com/SoFriendly/2fhey) (CC0) that adds emailed verification codes and a "is this the right place?" check before auto-paste.
+
+**What changed** (every block is marked `// Fork:`; new files live in `TwoFHey/Services/`):
+- `EmailCodeManager`: polls the local Gmail helper (`infra`-side `chrome-extensions/email-code-fill/helper`, `127.0.0.1:3078`) every 5 s (30 s while it is down), emits fresh codes (age <= 120 s) once, and marks them used via `POST /used` so the Chrome extension chip also disappears. Runs alongside the iMessage / Google Messages source; "Email Codes" toggle in Settings (default on).
+- `PasteGuard` (pure, tested): auto-paste only when the code belongs to the frontmost site/app (email `match`, or a sole unmatched code with no site to contradict it; message `service` vs host/title) and a text field/area/combo box has focus. When skipped, the code is still copied and the notification says why ("Copied — didn't match chatgpt.com").
+- `FrontmostContext`: frontmost app, plus URL host and title for Chrome/Canary/Brave/Edge/Arc/Safari via AppleScript (falls back to the app name if Automation is denied); AX focused-element role check.
+- Recent menu shows the origin (✉ sender / 💬 service). Entitlement `automation.apple-events` + `NSAppleEventsUsageDescription` added.
+
+**Build / install** (signed with Xander's Apple Development team 9876F9A9FU; upstream's team is not ours):
+```
+xcodebuild build -scheme TwoFHey -configuration Release -destination 'platform=macOS' -derivedDataPath build \
+  DEVELOPMENT_TEAM=9876F9A9FU MACOSX_DEPLOYMENT_TARGET=12.4 -allowProvisioningUpdates
+# app: build/Build/Products/Release/2FHey.app   (copy to /Applications yourself)
+xcodebuild test -scheme TwoFHey -destination 'platform=macOS' -derivedDataPath build DEVELOPMENT_TEAM=9876F9A9FU MACOSX_DEPLOYMENT_TARGET=12.4
+```
+`MACOSX_DEPLOYMENT_TARGET=12.4` is needed because upstream's AutoLauncher target says 10.15, which current Xcode rejects. Permissions: Full Disk Access, Accessibility, and Automation (per browser, asked on first use). Same bundle ID as upstream, so remove the old copy before running this one.
+
+**Merge upstream:** `git fetch upstream && git merge upstream/main`. Conflicts should only be in `AppDelegate.swift` (Fork-marked blocks).
+
+See `PROGRESS.md` and `AGENTS.md`.
+
+---
+
 # 2FHey
 
 Automatically detect and copy verification codes from iMessage and SMS.
