@@ -43,6 +43,8 @@ class OverlayWindow: NSWindow {
 class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private let otpParser = OTPParser()
     private var messageSource: MessageSource?
+    private var emailSource: EmailCodeManager? // Fork
+    private var emailCancellable: AnyCancellable? // Fork
 
     private var statusBarItem: NSStatusItem!
     private var onboardingWindow: NSWindow?
@@ -89,6 +91,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     func startMessageSource() {
         messageSource?.stopListening()
+        cancellables.removeAll() // Fork: drop sinks from the previous sources
 
         switch AppStateManager.shared.messagingPlatform {
         case .iMessage: messageSource = MessageManager(withOTPParser: otpParser)
@@ -100,12 +103,34 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             if let newest = messages.last, newest.0 != self.lastNotificationMessage, self.shouldShowNotificationOverlay {
                 self.showOverlayForMessage(newest)
             }
-            self.mostRecentMessages = messages.suffix(3)
+            // Fork: keep the other source's recent codes in the menu
+            self.mostRecentMessages = (self.mostRecentMessages.filter { self.isEmail($0.0.guid) } + messages.suffix(3)).suffix(3)
             self.refreshMenu()
             self.shouldShowNotificationOverlay = true
         }.store(in: &cancellables)
         messageSource?.startListening()
+        startEmailSource()
     }
+
+    // Fork: emailed codes run alongside the chosen message source
+    private func startEmailSource() {
+        emailSource?.stopListening()
+        emailSource = nil
+        emailCancellable = nil
+        guard AppStateManager.shared.emailCodesEnabled else { return }
+        let email = EmailCodeManager()
+        emailSource = email
+        emailCancellable = email.messagesPublisher.sink { [weak self] messages in
+            guard let self, let newest = messages.last else { return }
+            if newest.0 != self.lastNotificationMessage { self.showOverlayForMessage(newest) }
+            self.mostRecentMessages = (self.mostRecentMessages.filter { !self.isEmail($0.0.guid) } + messages).suffix(3)
+            self.refreshMenu()
+        }
+        email.startListening()
+    }
+
+    // Fork
+    private func isEmail(_ guid: String) -> Bool { emailSource?.owns(guid: guid) ?? false }
 
     private func showOverlayForMessage(_ message: MessageWithParsedOTP) {
         overlayWindow?.close()
@@ -113,18 +138,31 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         lastNotificationMessage = message.0
 
         originalClipboardContents = message.1.copyToClipboard()
-        messageSource?.markMessageAsRead(guid: message.0.guid)
+        // Fork: mark read on the source the message came from
+        let fromEmail = isEmail(message.0.guid)
+        if fromEmail { emailSource?.markMessageAsRead(guid: message.0.guid) } else { messageSource?.markMessageAsRead(guid: message.0.guid) }
 
+        // Fork: only paste where the code belongs, into a text field; otherwise say why not.
+        var skipReason: String?
         if AppStateManager.shared.autoPasteEnabled && AppStateManager.shared.hasAccessibilityPermission() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Self.sendCommandV() }
+            let ctx = FrontmostContext.current()
+            let origin = emailSource?.origin(guid: message.0.guid) ?? .message(service: message.1.service)
+            let decision = PasteGuard.decide(origin: origin, host: ctx.host, title: ctx.title,
+                                             focusedIsTextInput: FrontmostContext.focusedElementIsTextInput())
+            if decision.paste {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Self.sendCommandV() }
+            } else {
+                skipReason = decision.reason
+            }
         }
 
         restoreClipboardContents(withDelay: AppStateManager.shared.restoreContentsDelayTime)
 
+        let note = skipReason.map { "Copied — \($0)" }
         if AppStateManager.shared.useNativeNotifications {
-            sendNativeNotification(code: message.1.code, service: message.1.service)
+            sendNativeNotification(code: message.1.code, service: message.1.service, note: note)
         } else if AppStateManager.shared.showNotificationOverlay {
-            overlayWindow = OverlayWindow(line1: message.1.code, line2: "Copied to Clipboard")
+            overlayWindow = OverlayWindow(line1: message.1.code, line2: note ?? "Copied to Clipboard")
         }
     }
 
@@ -174,10 +212,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
     }
 
-    private func sendNativeNotification(code: String, service: String?) {
+    private func sendNativeNotification(code: String, service: String?, note: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = "2FA Code Copied"
         content.body = service.map { "\(code) - \($0)" } ?? code
+        if let note { content.body += "\n\(note)" } // Fork
         content.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
@@ -235,7 +274,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
         menu.addItem(withTitle: "Recent", action: nil, keyEquivalent: "")
         for (index, (_, otp)) in mostRecentMessages.enumerated() {
-            let item = NSMenuItem(title: "\(otp.code) - \(otp.service ?? "Unknown")", action: #selector(onPressCode), keyEquivalent: "")
+            // Fork: show where each code came from
+            let item = NSMenuItem(title: PasteGuard.recentTitle(code: otp.code, service: otp.service, isEmail: isEmail(mostRecentMessages[index].0.guid)), action: #selector(onPressCode), keyEquivalent: "")
             item.tag = index
             menu.addItem(item)
         }
@@ -269,6 +309,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                                         toolTip: "Show a notification overlay when a code is copied (disable for privacy during screen recordings)"))
         }
 
+        // Fork
+        settings.addItem(toggleItem("Email Codes", action: #selector(onPressEmailCodes), on: state.emailCodesEnabled,
+                                    toolTip: "Also offer verification codes from Gmail (needs the local email-code-fill helper)"))
         settings.addItem(toggleItem("Keyboard Shortcuts", action: #selector(onPressKeyboardShortcuts),
                                     on: state.globalShortcutEnabled,
                                     toolTip: "Disable keyboard shortcuts if 2FHey uses the same keyboard shortcuts as another app"))
@@ -403,6 +446,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     @objc func onPressUseNativeNotifications() {
         AppStateManager.shared.useNativeNotifications.toggle()
+        refreshMenu()
+    }
+
+    // Fork
+    @objc func onPressEmailCodes() {
+        AppStateManager.shared.emailCodesEnabled.toggle()
+        startEmailSource()
         refreshMenu()
     }
 

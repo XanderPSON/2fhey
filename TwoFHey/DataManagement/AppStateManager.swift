@@ -107,6 +107,12 @@ class AppStateManager {
         set { set(newValue, "useNativeNotifications") }
     }
 
+    // Fork: emailed codes via the local Gmail helper; on by default.
+    var emailCodesEnabled: Bool {
+        get { defaults.object(forKey: Self.keyPrefix + "emailCodesEnabled") == nil ? true : bool("emailCodesEnabled") }
+        set { set(newValue, "emailCodesEnabled") }
+    }
+
     var markAsReadEnabled: Bool {
         get { bool("markAsReadEnabled") }
         set { set(newValue, "markAsReadEnabled") }

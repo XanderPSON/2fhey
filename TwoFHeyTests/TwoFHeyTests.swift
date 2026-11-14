@@ -171,3 +171,92 @@ class OTPParserTests: XCTestCase {
         assertNoCode("Running 15 minutes late, sorry!")
     }
 }
+
+// Fork: emailed codes, site/app check before auto-paste
+class ForkPasteGuardTests: XCTestCase {
+    func testSiteName() {
+        XCTAssertEqual(PasteGuard.siteName(fromHost: "www.cgtrader.com"), "cgtrader")
+        XCTAssertEqual(PasteGuard.siteName(fromHost: "shop.example.co.uk"), "example")
+        XCTAssertEqual(PasteGuard.siteName(fromHost: "localhost"), "localhost")
+        XCTAssertEqual(PasteGuard.siteName(fromHost: ""), "")
+    }
+
+    func testServiceMatching() {
+        XCTAssertTrue(PasteGuard.serviceMatches("CGTrader", host: "www.cgtrader.com", title: "Log in"))
+        XCTAssertTrue(PasteGuard.serviceMatches("google", host: "accounts.google.com", title: ""))
+        XCTAssertTrue(PasteGuard.serviceMatches("Chase", host: "", title: "Chase Bank - Sign in"))
+        XCTAssertFalse(PasteGuard.serviceMatches("Amazon", host: "chatgpt.com", title: "ChatGPT"))
+        XCTAssertTrue(PasteGuard.serviceMatches(nil, host: "chatgpt.com", title: "ChatGPT"))
+        XCTAssertTrue(PasteGuard.serviceMatches("Amazon", host: "", title: ""))
+    }
+
+    func testEmailDecision() {
+        let matched = PasteGuard.decide(origin: .email(match: true, onlyFresh: false), host: "a.com", title: "", focusedIsTextInput: true)
+        XCTAssertTrue(matched.paste)
+        let wrongSite = PasteGuard.decide(origin: .email(match: false, onlyFresh: true), host: "chatgpt.com", title: "", focusedIsTextInput: true)
+        XCTAssertEqual(wrongSite, PasteDecision(paste: false, reason: "didn't match chatgpt.com"))
+        XCTAssertFalse(PasteGuard.decide(origin: .email(match: false, onlyFresh: false), host: "", title: "Terminal", focusedIsTextInput: true).paste)
+        XCTAssertTrue(PasteGuard.decide(origin: .email(match: false, onlyFresh: true), host: "", title: "Terminal", focusedIsTextInput: true).paste)
+    }
+
+    func testMessageAndFocusDecision() {
+        XCTAssertFalse(PasteGuard.decide(origin: .message(service: "Amazon"), host: "chatgpt.com", title: "ChatGPT", focusedIsTextInput: true).paste)
+        XCTAssertTrue(PasteGuard.decide(origin: .message(service: nil), host: "chatgpt.com", title: "", focusedIsTextInput: true).paste)
+        let noField = PasteGuard.decide(origin: .message(service: nil), host: "x.com", title: "", focusedIsTextInput: false)
+        XCTAssertEqual(noField.reason, "no text field focused")
+        XCTAssertTrue(PasteGuard.decide(origin: .message(service: nil), host: "x.com", title: "", focusedIsTextInput: nil).paste)
+        XCTAssertTrue(PasteGuard.isTextInputRole("AXComboBox"))
+        XCTAssertFalse(PasteGuard.isTextInputRole("AXWebArea"))
+        XCTAssertFalse(PasteGuard.isTextInputRole(nil))
+    }
+
+    func testRecentTitle() {
+        XCTAssertEqual(PasteGuard.recentTitle(code: "123456", service: "GitHub", isEmail: true), "123456 - ✉ GitHub")
+        XCTAssertEqual(PasteGuard.recentTitle(code: "123456", service: nil, isEmail: false), "123456 - 💬 Unknown")
+    }
+}
+
+class ForkFrontmostContextTests: XCTestCase {
+    func testBrowserKinds() {
+        XCTAssertEqual(FrontmostContext.browserKind(bundleID: "com.google.Chrome"), .chromium)
+        XCTAssertEqual(FrontmostContext.browserKind(bundleID: "com.apple.Safari"), .safari)
+        XCTAssertNil(FrontmostContext.browserKind(bundleID: "com.apple.Terminal"))
+    }
+
+    func testParseScriptOutput() {
+        let ctx = FrontmostContext.parse(scriptOutput: "https://www.cgtrader.com/login?x=1\nLog in | CGTrader")
+        XCTAssertEqual(ctx, FrontmostContext(host: "www.cgtrader.com", title: "Log in | CGTrader"))
+        XCTAssertNil(FrontmostContext.parse(scriptOutput: "missing value"))
+    }
+}
+
+class ForkEmailCodeTests: XCTestCase {
+    private let json = """
+    {"codes":[
+      {"id":"a","account":"x@gmail.com","code":"123456","from":"GitHub","subject":"Your code","match":true,"age_s":30},
+      {"id":"b","account":"x@gmail.com","code":"654321","from":"Old","subject":"Old code","match":false,"age_s":500},
+      {"id":"c","account":"x@gmail.com","code":"111111","from":"Seen","subject":"s","match":false,"age_s":10}
+    ]}
+    """.data(using: .utf8)!
+
+    func testFiltersOldAndSeen() {
+        let result = EmailCodeManager.newCodes(from: json, seen: ["c"])
+        XCTAssertEqual(result?.codes.map(\.id), ["a"])
+        XCTAssertEqual(result?.onlyFresh, false)
+    }
+
+    func testOnlyFreshAndBadJSON() {
+        let one = #"{"codes":[{"id":"a","account":"x","code":"1234","from":"F","subject":"S","match":false,"age_s":5}]}"#.data(using: .utf8)!
+        XCTAssertEqual(EmailCodeManager.newCodes(from: one, seen: [])?.onlyFresh, true)
+        XCTAssertNil(EmailCodeManager.newCodes(from: Data("nope".utf8), seen: []))
+    }
+
+    func testMessageMapping() {
+        let code = EmailCode(id: "g1", account: "x", code: "123456", from: "GitHub", subject: "Your code", match: true, ageSeconds: 1)
+        let (message, otp) = EmailCodeManager.makeMessage(code)
+        XCTAssertEqual(message.guid, "g1")
+        XCTAssertEqual(message.text, "GitHub: Your code")
+        XCTAssertEqual(message.handle, "GitHub")
+        XCTAssertEqual(otp, ParsedOTP(service: "GitHub", code: "123456"))
+    }
+}

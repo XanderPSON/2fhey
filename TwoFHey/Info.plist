@@ -4,6 +4,9 @@
 <dict>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Accessiblity needed to automate copying codes to clipboard</string>
+	<!-- Fork: read the active browser tab's URL/title before auto-paste -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>2FHey checks which site is open in your browser so it only auto-pastes codes meant for it</string>
 	<key>LSUIElement</key>
 	<true/>
 </dict>
