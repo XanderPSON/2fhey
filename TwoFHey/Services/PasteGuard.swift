@@ -63,7 +63,8 @@ enum PasteGuard {
     }
 
     /// Fork: an email code is marked used only once we typed it, so the Chrome extension keeps offering skipped ones.
-    static func marksEmailUsed(_ decision: PasteDecision?) -> Bool { decision?.paste == true }
+    /// With Ask Before Filling it is marked when you click Fill instead.
+    static func marksEmailUsed(_ decision: PasteDecision?, asked: Bool = false) -> Bool { !asked && decision?.paste == true }
 
     static func isTextInputRole(_ role: String?) -> Bool {
         ["AXTextField", "AXTextArea", "AXComboBox"].contains(role ?? "")

@@ -45,6 +45,25 @@ struct FrontmostContext: Equatable {
 
     /// nil when the check can't run (no permission / nothing reported).
     static func focusedElementIsTextInput() -> Bool? {
+        guard let el = focusedElement() else { return nil }
+        var role: AnyObject?
+        guard AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role) == .success else { return nil }
+        return PasteGuard.isTextInputRole(role as? String)
+    }
+
+    /// Fork: the focused element's screen frame (Accessibility coordinates, top-left origin), for the Fill popup.
+    static func focusedElementFrame() -> CGRect? {
+        guard let el = focusedElement() else { return nil }
+        var pos: AnyObject?, size: AnyObject?
+        var point = CGPoint.zero, extent = CGSize.zero
+        guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pos) == .success,
+              AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &size) == .success,
+              AXValueGetValue(pos as! AXValue, .cgPoint, &point), AXValueGetValue(size as! AXValue, .cgSize, &extent),
+              extent.width > 0 else { return nil }
+        return CGRect(origin: point, size: extent)
+    }
+
+    private static func focusedElement() -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
         var focused: AnyObject?
         var err = AXUIElementCopyAttributeValue(AXUIElementCreateSystemWide(), kAXFocusedUIElementAttribute as CFString, &focused)
@@ -55,8 +74,6 @@ struct FrontmostContext: Equatable {
             err = AXUIElementCopyAttributeValue(appEl, kAXFocusedUIElementAttribute as CFString, &focused)
         }
         guard err == .success, let el = focused else { return nil }
-        var role: AnyObject?
-        guard AXUIElementCopyAttributeValue(el as! AXUIElement, kAXRoleAttribute as CFString, &role) == .success else { return nil }
-        return PasteGuard.isTextInputRole(role as? String)
+        return (el as! AXUIElement)
     }
 }

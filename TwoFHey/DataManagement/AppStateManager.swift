@@ -107,6 +107,12 @@ class AppStateManager {
         set { set(newValue, "useNativeNotifications") }
     }
 
+    // Fork: show a Fill popup instead of pasting straight away; on by default.
+    var askBeforeFilling: Bool {
+        get { defaults.object(forKey: Self.keyPrefix + "askBeforeFilling") == nil ? true : bool("askBeforeFilling") }
+        set { set(newValue, "askBeforeFilling") }
+    }
+
     // Fork: emailed codes via the local Gmail helper; on by default.
     var emailCodesEnabled: Bool {
         get { defaults.object(forKey: Self.keyPrefix + "emailCodesEnabled") == nil ? true : bool("emailCodesEnabled") }

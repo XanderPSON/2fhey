@@ -49,6 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private var statusBarItem: NSStatusItem!
     private var onboardingWindow: NSWindow?
     private var overlayWindow: OverlayWindow?
+    private var fillPanel: FillPanel? // Fork
     private var hotKey: HotKey?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -135,18 +136,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private func showOverlayForMessage(_ message: MessageWithParsedOTP) {
         overlayWindow?.close()
         overlayWindow = nil
+        closeFillPanel() // Fork
         lastNotificationMessage = message.0
 
         originalClipboardContents = message.1.copyToClipboard()
         // Fork: only paste where the code belongs, into a text field; otherwise say why not.
         var skipReason: String?
         var decision: PasteDecision?
+        // Fork: with Ask Before Filling, a matching code gets a Fill popup; focus is checked when you click it.
+        let ask = AppStateManager.shared.askBeforeFilling
         if AppStateManager.shared.autoPasteEnabled && AppStateManager.shared.hasAccessibilityPermission() {
             let ctx = FrontmostContext.current()
             let origin = emailSource?.origin(guid: message.0.guid) ?? .message(service: message.1.service)
             decision = PasteGuard.decide(origin: origin, host: ctx.host, title: ctx.title,
-                                         focusedIsTextInput: FrontmostContext.focusedElementIsTextInput())
-            if decision?.paste == true {
+                                         focusedIsTextInput: ask ? nil : FrontmostContext.focusedElementIsTextInput())
+            if decision?.paste == true && ask {
+                showFillPanel(message)
+            } else if decision?.paste == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Self.sendCommandV() }
             } else {
                 skipReason = decision?.reason
@@ -157,11 +163,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         // unused, so the Chrome extension can still offer it in the right tab.
         if !isEmail(message.0.guid) {
             messageSource?.markMessageAsRead(guid: message.0.guid)
-        } else if PasteGuard.marksEmailUsed(decision) {
+        } else if PasteGuard.marksEmailUsed(decision, asked: ask) {
             emailSource?.markMessageAsRead(guid: message.0.guid)
         }
 
         restoreClipboardContents(withDelay: AppStateManager.shared.restoreContentsDelayTime)
+        if fillPanel != nil { return } // Fork: the popup is the notification
 
         let note = skipReason.map { "Copied — \($0)" }
         if AppStateManager.shared.useNativeNotifications {
@@ -169,6 +176,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         } else if AppStateManager.shared.showNotificationOverlay {
             overlayWindow = OverlayWindow(line1: message.1.code, line2: note ?? "Copied to Clipboard")
         }
+    }
+
+    // Fork: Ask Before Filling popup
+    private func showFillPanel(_ message: MessageWithParsedOTP) {
+        let guid = message.0.guid
+        let source = message.1.service.map { isEmail(guid) ? "✉ \($0)" : "💬 \($0)" }
+        fillPanel = FillPanel(code: message.1.code, source: source, near: FrontmostContext.focusedElementFrame(),
+                              onFill: { [weak self] in self?.fill(message) }, onClose: { [weak self] in self?.closeFillPanel() })
+        let panel = fillPanel
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            if self?.fillPanel === panel { self?.closeFillPanel() }
+        }
+    }
+
+    private func closeFillPanel() {
+        fillPanel?.close()
+        fillPanel = nil
+    }
+
+    private func fill(_ message: MessageWithParsedOTP) {
+        closeFillPanel()
+        if FrontmostContext.focusedElementIsTextInput() == false {
+            overlayWindow = OverlayWindow(line1: message.1.code, line2: "Copied — no text field focused")
+            return
+        }
+        if originalClipboardContents == nil { // already restored: put the code back for the paste
+            originalClipboardContents = message.1.copyToClipboard()
+            restoreClipboardContents(withDelay: AppStateManager.shared.restoreContentsDelayTime)
+        } else {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(message.1.code, forType: .string)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Self.sendCommandV() }
+        if isEmail(message.0.guid) { emailSource?.markMessageAsRead(guid: message.0.guid) }
     }
 
     private static func sendCommandV() {
@@ -322,6 +363,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                                     toolTip: "Disable keyboard shortcuts if 2FHey uses the same keyboard shortcuts as another app"))
         settings.addItem(toggleItem("Auto-Paste Codes", action: #selector(onPressAutoPaste), on: state.autoPasteEnabled,
                                     toolTip: "Automatically paste codes into focused text field (requires accessibility permissions)"))
+        if state.autoPasteEnabled { // Fork
+            settings.addItem(toggleItem("Ask Before Filling", action: #selector(onPressAskBeforeFilling), on: state.askBeforeFilling,
+                                        toolTip: "Show a Fill button under the field instead of pasting straight away"))
+        }
 
         if state.messagingPlatform == .iMessage {
             settings.addItem(toggleItem("Mark Messages as Read", action: #selector(onPressMarkAsRead), on: state.markAsReadEnabled,
@@ -441,6 +486,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     @objc func onPressAutoPaste() {
         AppStateManager.shared.autoPasteEnabled.toggle()
+        refreshMenu()
+    }
+
+    // Fork
+    @objc func onPressAskBeforeFilling() {
+        AppStateManager.shared.askBeforeFilling.toggle()
         refreshMenu()
     }
 

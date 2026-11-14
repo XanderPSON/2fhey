@@ -265,5 +265,29 @@ class ForkEmailCodeTests: XCTestCase {
         XCTAssertTrue(PasteGuard.marksEmailUsed(PasteDecision(paste: true, reason: nil)))
         XCTAssertFalse(PasteGuard.marksEmailUsed(PasteDecision(paste: false, reason: "didn't match x.com")))
         XCTAssertFalse(PasteGuard.marksEmailUsed(nil)) // auto-paste off
+        XCTAssertFalse(PasteGuard.marksEmailUsed(PasteDecision(paste: true, reason: nil), asked: true)) // waits for Fill
+    }
+}
+
+// Fork: Ask Before Filling popup placement
+class ForkFillPopupTests: XCTestCase {
+    let size = CGSize(width: 240, height: 40)
+    let visible = CGRect(x: 0, y: 0, width: 1440, height: 875)
+
+    func testSitsUnderTheField() {
+        let field = CGRect(x: 500, y: 300, width: 200, height: 30) // AX: top-left origin
+        let o = FillPopup.origin(field: field, size: size, primaryHeight: 900, visible: visible)
+        XCTAssertEqual(o, CGPoint(x: 500, y: 900 - 330 - FillPopup.gap - 40))
+    }
+
+    func testFlipsAboveNearTheBottom() {
+        let field = CGRect(x: 500, y: 860, width: 200, height: 30)
+        let o = FillPopup.origin(field: field, size: size, primaryHeight: 900, visible: visible)
+        XCTAssertEqual(o.y, 900 - 860 + FillPopup.gap)
+    }
+
+    func testStaysOnScreenAtTheRightEdge() {
+        let field = CGRect(x: 1400, y: 300, width: 30, height: 30)
+        XCTAssertEqual(FillPopup.origin(field: field, size: size, primaryHeight: 900, visible: visible).x, 1440 - 240)
     }
 }
