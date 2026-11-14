@@ -138,22 +138,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         lastNotificationMessage = message.0
 
         originalClipboardContents = message.1.copyToClipboard()
-        // Fork: mark read on the source the message came from
-        let fromEmail = isEmail(message.0.guid)
-        if fromEmail { emailSource?.markMessageAsRead(guid: message.0.guid) } else { messageSource?.markMessageAsRead(guid: message.0.guid) }
-
         // Fork: only paste where the code belongs, into a text field; otherwise say why not.
         var skipReason: String?
+        var decision: PasteDecision?
         if AppStateManager.shared.autoPasteEnabled && AppStateManager.shared.hasAccessibilityPermission() {
             let ctx = FrontmostContext.current()
             let origin = emailSource?.origin(guid: message.0.guid) ?? .message(service: message.1.service)
-            let decision = PasteGuard.decide(origin: origin, host: ctx.host, title: ctx.title,
-                                             focusedIsTextInput: FrontmostContext.focusedElementIsTextInput())
-            if decision.paste {
+            decision = PasteGuard.decide(origin: origin, host: ctx.host, title: ctx.title,
+                                         focusedIsTextInput: FrontmostContext.focusedElementIsTextInput())
+            if decision?.paste == true {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { Self.sendCommandV() }
             } else {
-                skipReason = decision.reason
+                skipReason = decision?.reason
             }
+        }
+
+        // Fork: mark read on the source the message came from. An email code we didn't type stays
+        // unused, so the Chrome extension can still offer it in the right tab.
+        if !isEmail(message.0.guid) {
+            messageSource?.markMessageAsRead(guid: message.0.guid)
+        } else if PasteGuard.marksEmailUsed(decision) {
+            emailSource?.markMessageAsRead(guid: message.0.guid)
         }
 
         restoreClipboardContents(withDelay: AppStateManager.shared.restoreContentsDelayTime)

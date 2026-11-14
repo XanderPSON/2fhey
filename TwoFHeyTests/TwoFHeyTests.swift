@@ -259,4 +259,11 @@ class ForkEmailCodeTests: XCTestCase {
         XCTAssertEqual(message.handle, "GitHub")
         XCTAssertEqual(otp, ParsedOTP(service: "GitHub", code: "123456"))
     }
+
+    // Fork: skipped email codes stay unused so the Chrome extension can still offer them
+    func testMarksEmailUsedOnlyWhenPasted() {
+        XCTAssertTrue(PasteGuard.marksEmailUsed(PasteDecision(paste: true, reason: nil)))
+        XCTAssertFalse(PasteGuard.marksEmailUsed(PasteDecision(paste: false, reason: "didn't match x.com")))
+        XCTAssertFalse(PasteGuard.marksEmailUsed(nil)) // auto-paste off
+    }
 }
