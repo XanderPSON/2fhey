@@ -4,3 +4,4 @@
 - 2026-11-13: Installed the fork in /Applications (upstream 2.0 moved to Trash). Skipped email codes now stay unused for the Chrome extension.
 - 2026-11-14: Ask Before Filling: Fill popup under the focused field instead of auto-pasting (default on).
 - 2026-11-14: Separate on/off switches for iMessage (message) codes and email codes.
+- 2026-11-15: Setup window no longer pops at login on a transient permission miss (10s re-check); FDA probe reads 16 bytes, not all of chat.db (RSS 650MB → 73MB).
