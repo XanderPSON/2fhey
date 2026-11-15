@@ -56,7 +56,7 @@ class AppStateManager {
     func hasFullDiskAccess() -> FullDiskAccessStatus {
         let chatDB = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Messages/chat.db")
         guard FileManager.default.fileExists(atPath: chatDB.path) else { return .unknown }
-        return (try? Data(contentsOf: chatDB)) != nil ? .authorized : .denied
+        return (try? FileHandle(forReadingFrom: chatDB))?.readData(ofLength: 16).isEmpty == false ? .authorized : .denied // Fork: was reading all of chat.db (500MB+)
     }
 
     func hasAccessibilityPermission() -> Bool {

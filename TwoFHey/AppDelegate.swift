@@ -81,9 +81,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             AppStateManager.shared.globalShortcutEnabled = true
             AppStateManager.shared.hasSetup = true
             openOnboardingWindow()
-        } else if AppStateManager.shared.messagingPlatform == .iMessage, AppStateManager.shared.messageCodesEnabled, // Fork
-                  AppStateManager.shared.hasFullDiskAccess() != .authorized || !AppStateManager.shared.hasAccessibilityPermission() {
-            openOnboardingWindow()
+        } else {
+            let state = AppStateManager.shared
+            let missingPermission = { state.messagingPlatform == .iMessage && state.messageCodesEnabled && // Fork
+                (state.hasFullDiskAccess() != .authorized || !state.hasAccessibilityPermission()) }
+            // Fork: re-check before nagging; right after login TCC can briefly report granted permissions as missing
+            if missingPermission() {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                    if missingPermission() { self?.openOnboardingWindow() }
+                }
+            }
         }
     }
 
