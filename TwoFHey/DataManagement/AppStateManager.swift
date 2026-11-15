@@ -113,6 +113,12 @@ class AppStateManager {
         set { set(newValue, "askBeforeFilling") }
     }
 
+    // Fork: codes from the chosen messaging platform (iMessage / Google Messages); on by default.
+    var messageCodesEnabled: Bool {
+        get { defaults.object(forKey: Self.keyPrefix + "messageCodesEnabled") == nil ? true : bool("messageCodesEnabled") }
+        set { set(newValue, "messageCodesEnabled") }
+    }
+
     // Fork: emailed codes via the local Gmail helper; on by default.
     var emailCodesEnabled: Bool {
         get { defaults.object(forKey: Self.keyPrefix + "emailCodesEnabled") == nil ? true : bool("emailCodesEnabled") }

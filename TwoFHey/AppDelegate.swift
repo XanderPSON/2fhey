@@ -72,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
 
         startMessageSource()
+        startEmailSource() // Fork
         setupClipboardRestoreOnPaste()
         setupNotifications()
 
@@ -80,7 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             AppStateManager.shared.globalShortcutEnabled = true
             AppStateManager.shared.hasSetup = true
             openOnboardingWindow()
-        } else if AppStateManager.shared.messagingPlatform == .iMessage,
+        } else if AppStateManager.shared.messagingPlatform == .iMessage, AppStateManager.shared.messageCodesEnabled, // Fork
                   AppStateManager.shared.hasFullDiskAccess() != .authorized || !AppStateManager.shared.hasAccessibilityPermission() {
             openOnboardingWindow()
         }
@@ -93,6 +94,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     func startMessageSource() {
         messageSource?.stopListening()
         cancellables.removeAll() // Fork: drop sinks from the previous sources
+        messageSource = nil
+        guard AppStateManager.shared.messageCodesEnabled else { return } // Fork
 
         switch AppStateManager.shared.messagingPlatform {
         case .iMessage: messageSource = MessageManager(withOTPParser: otpParser)
@@ -110,7 +113,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             self.shouldShowNotificationOverlay = true
         }.store(in: &cancellables)
         messageSource?.startListening()
-        startEmailSource()
     }
 
     // Fork: emailed codes run alongside the chosen message source
@@ -356,6 +358,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         }
 
         // Fork
+        settings.addItem(toggleItem(state.messagingPlatform == .iMessage ? "iMessage Codes" : "Google Messages Codes",
+                                    action: #selector(onPressMessageCodes), on: state.messageCodesEnabled,
+                                    toolTip: "Offer verification codes from your text messages"))
         settings.addItem(toggleItem("Email Codes", action: #selector(onPressEmailCodes), on: state.emailCodesEnabled,
                                     toolTip: "Also offer verification codes from Gmail (needs the local email-code-fill helper)"))
         settings.addItem(toggleItem("Keyboard Shortcuts", action: #selector(onPressKeyboardShortcuts),
@@ -506,6 +511,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     // Fork
+    @objc func onPressMessageCodes() {
+        AppStateManager.shared.messageCodesEnabled.toggle()
+        startMessageSource()
+        refreshMenu()
+    }
+
     @objc func onPressEmailCodes() {
         AppStateManager.shared.emailCodesEnabled.toggle()
         startEmailSource()
