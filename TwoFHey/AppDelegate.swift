@@ -141,6 +141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
     // Fork
     private func isEmail(_ guid: String) -> Bool { emailSource?.owns(guid: guid) ?? false }
+    private func source(for guid: String) -> MessageSource? { isEmail(guid) ? emailSource : messageSource }
 
     private func showOverlayForMessage(_ message: MessageWithParsedOTP) {
         overlayWindow?.close()
@@ -168,13 +169,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             }
         }
 
-        // Fork: mark read on the source the message came from. An email code we didn't type stays
-        // unused, so the Chrome extension can still offer it in the right tab.
-        if !isEmail(message.0.guid) {
-            messageSource?.markMessageAsRead(guid: message.0.guid)
-        } else if PasteGuard.marksEmailUsed(decision, asked: ask) {
-            emailSource?.markMessageAsRead(guid: message.0.guid)
-        }
+        // Fork: mark read only once we typed it. An email code we didn't type stays unused, so the
+        // Chrome extension can still offer it in the right tab; a skipped text stays unread.
+        if PasteGuard.marksUsed(decision, asked: ask) { source(for: message.0.guid)?.markMessageAsRead(guid: message.0.guid) }
 
         restoreClipboardContents(withDelay: AppStateManager.shared.restoreContentsDelayTime)
         if fillPanel != nil { return } // Fork: the popup is the notification
@@ -218,7 +215,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             NSPasteboard.general.setString(message.1.code, forType: .string)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Self.sendCommandV() }
-        if isEmail(message.0.guid) { emailSource?.markMessageAsRead(guid: message.0.guid) }
+        source(for: message.0.guid)?.markMessageAsRead(guid: message.0.guid) // Fork
     }
 
     private static func sendCommandV() {
@@ -382,7 +379,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
         if state.messagingPlatform == .iMessage {
             settings.addItem(toggleItem("Mark Messages as Read", action: #selector(onPressMarkAsRead), on: state.markAsReadEnabled,
-                                        toolTip: "Automatically mark OTP messages as read in iMessage after copying the code"))
+                                        toolTip: "Mark the text as read in Messages after 2FHey fills its code"))
         }
 
         let restoreMenu = NSMenu()

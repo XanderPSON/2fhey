@@ -260,12 +260,29 @@ class ForkEmailCodeTests: XCTestCase {
         XCTAssertEqual(otp, ParsedOTP(service: "GitHub", code: "123456"))
     }
 
-    // Fork: skipped email codes stay unused so the Chrome extension can still offer them
-    func testMarksEmailUsedOnlyWhenPasted() {
-        XCTAssertTrue(PasteGuard.marksEmailUsed(PasteDecision(paste: true, reason: nil)))
-        XCTAssertFalse(PasteGuard.marksEmailUsed(PasteDecision(paste: false, reason: "didn't match x.com")))
-        XCTAssertFalse(PasteGuard.marksEmailUsed(nil)) // auto-paste off
-        XCTAssertFalse(PasteGuard.marksEmailUsed(PasteDecision(paste: true, reason: nil), asked: true)) // waits for Fill
+    // Fork: skipped codes stay unused (email) / unread (text)
+    func testMarksUsedOnlyWhenPasted() {
+        XCTAssertTrue(PasteGuard.marksUsed(PasteDecision(paste: true, reason: nil)))
+        XCTAssertFalse(PasteGuard.marksUsed(PasteDecision(paste: false, reason: "didn't match x.com")))
+        XCTAssertFalse(PasteGuard.marksUsed(nil)) // auto-paste off
+        XCTAssertFalse(PasteGuard.marksUsed(PasteDecision(paste: true, reason: nil), asked: true)) // waits for Fill
+    }
+}
+
+// Fork: finding the code's conversation row in Messages.app
+class ForkMessagesReadMarkerTests: XCTestCase {
+    let bofa = "<#>BofA: DO NOT share this code. Code 656600. We NEVER call or text for it. Reply HELP if you didn't request it."
+
+    func testMatchesUnreadRowByPreview() {
+        XCTAssertTrue(MessagesReadMarker.rowMatches(label: "Bank of America, Unread, \(bofa) , Yesterday ", messageText: bofa))
+        XCTAssertFalse(MessagesReadMarker.rowMatches(label: "Bank of America, Unread, \(bofa.replacingOccurrences(of: "656600", with: "290760")) , 8:00 AM", messageText: bofa))
+        XCTAssertFalse(MessagesReadMarker.rowMatches(label: "Steve, Pinned", messageText: ""))
+    }
+
+    func testLineBreaksAndLongPreviews() {
+        let text = "BofA Security: your card was used at:\n\nPROTON, $71.76, Declined, 11/25.\n\nDid you authorize this activity? Reply YES or NO. To opt out of fraud text alerts, reply STOP"
+        let label = "Bank of America, Unread, BofA Security: your card was used at: PROTON, $71.76, Declined, 11/25. Did you authorize this activity? Reply YES or, 7:14 AM"
+        XCTAssertTrue(MessagesReadMarker.rowMatches(label: label, messageText: text)) // only the first 100 characters count
     }
 }
 

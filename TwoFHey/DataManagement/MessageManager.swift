@@ -204,25 +204,9 @@ class MessageManager: ObservableObject, MessageSource {
     // MARK: - Mark as read
 
     func markMessageAsRead(guid: String) {
+        // Fork: through Messages.app itself; writing chat.db left the conversation unread there and on the iPhone.
         guard AppStateManager.shared.markAsReadEnabled,
-              AppStateManager.shared.hasFullDiskAccess() == .authorized else { return }
-
-        do {
-            let db = try Connection(databaseURL.absoluteString)
-            let message = Table("message").filter(Expression<String>("guid") == guid)
-            let dateRead = Int(Date().timeIntervalSinceReferenceDate * 1_000_000_000)
-            let updated = try db.run(message.update(
-                Expression<Int>("is_read") <- 1,
-                Expression<Int>("date_read") <- dateRead))
-            guard updated > 0 else { return }
-
-            // Nudge Messages.app to refresh its cached read state.
-            for name in ["com.apple.imdpersistence.IMDMessageStore.MessageStoreDidMarkMessagesAsRead",
-                         "com.apple.imdpersistence.IMDMessageStore.MessageStoreDidChange"] {
-                DistributedNotificationCenter.default().post(name: NSNotification.Name(name), object: nil)
-            }
-        } catch {
-            DebugLogger.shared.log("Failed to mark message as read", category: "ERROR", data: error)
-        }
+              let text = messages.first(where: { $0.0.guid == guid })?.0.text else { return }
+        DispatchQueue.global(qos: .utility).async { MessagesReadMarker.markRead(messageText: text) }
     }
 }
