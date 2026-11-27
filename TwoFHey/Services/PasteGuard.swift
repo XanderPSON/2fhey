@@ -66,6 +66,16 @@ enum PasteGuard {
     /// With Ask Before Filling it is marked when you click Fill instead.
     static func marksUsed(_ decision: PasteDecision?, asked: Bool = false) -> Bool { !asked && decision?.paste == true }
 
+    /// Fork: Apple's code AutoFill popup is a window of this XPC helper (window owner "AutoFill"), in Chrome too.
+    static func isAppleAutoFill(ownerPath: String) -> Bool { ownerPath.contains("/com.apple.SafariPlatformSupport.Helper") }
+
+    /// Fork: the code is in the field, spaced or dashed or not.
+    // shortcut: one field only; a code split across one-digit boxes isn't seen, so that text stays unread.
+    static func fieldHasCode(_ value: String?, code: String) -> Bool {
+        func bare(_ s: String) -> String { s.filter { $0.isLetter || $0.isNumber }.uppercased() }
+        return !bare(code).isEmpty && bare(value ?? "").contains(bare(code))
+    }
+
     static func isTextInputRole(_ role: String?) -> Bool {
         ["AXTextField", "AXTextArea", "AXComboBox"].contains(role ?? "")
     }

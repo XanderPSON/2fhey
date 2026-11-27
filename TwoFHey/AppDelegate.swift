@@ -143,7 +143,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private func isEmail(_ guid: String) -> Bool { emailSource?.owns(guid: guid) ?? false }
     private func source(for guid: String) -> MessageSource? { isEmail(guid) ? emailSource : messageSource }
 
-    private func showOverlayForMessage(_ message: MessageWithParsedOTP) {
+    private func showOverlayForMessage(_ message: MessageWithParsedOTP, checkedApple: Bool = false) {
+        if !checkedApple { // Fork: Apple's own AutoFill goes first for texts; however the code gets typed, mark it done
+            watchFieldForCode(message)
+            if !isEmail(message.0.guid) && AppStateManager.shared.messagingPlatform == .iMessage {
+                lastNotificationMessage = message.0
+                return deferToApple(message, tries: 10)
+            }
+        }
         overlayWindow?.close()
         overlayWindow = nil
         closeFillPanel() // Fork
@@ -182,6 +189,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         } else if AppStateManager.shared.showNotificationOverlay {
             overlayWindow = OverlayWindow(line1: message.1.code, line2: note ?? "Copied to Clipboard")
         }
+    }
+
+    // Fork: no 2FHey popup while Apple's AutoFill offers the code; its popup shows up to ~1 s after we see the text.
+    private func deferToApple(_ message: MessageWithParsedOTP, tries: Int) {
+        if FrontmostContext.appleAutoFillShowing() { return NSLog("2FHey: Apple AutoFill is offering the code") }
+        guard tries > 0 else { return showOverlayForMessage(message, checkedApple: true) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.deferToApple(message, tries: tries - 1) }
+    }
+
+    // Fork: when the code lands in the focused field (Apple's AutoFill, typed or pasted), mark the text read / email done.
+    private func watchFieldForCode(_ message: MessageWithParsedOTP, until deadline: Date = Date() + 120) {
+        if PasteGuard.fieldHasCode(FrontmostContext.focusedElementValue(), code: message.1.code) {
+            NSLog("2FHey: code entered, marking it done")
+            return source(for: message.0.guid)?.markMessageAsRead(guid: message.0.guid) ?? ()
+        }
+        guard Date() < deadline else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.watchFieldForCode(message, until: deadline) }
     }
 
     // Fork: Ask Before Filling popup

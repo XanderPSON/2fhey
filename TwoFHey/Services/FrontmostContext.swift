@@ -63,6 +63,24 @@ struct FrontmostContext: Equatable {
         return CGRect(origin: point, size: extent)
     }
 
+    /// Fork: the focused field's text, to see whether a code ended up in it.
+    static func focusedElementValue() -> String? {
+        guard let el = focusedElement() else { return nil }
+        var value: AnyObject?
+        AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &value)
+        return value as? String
+    }
+
+    /// Fork: whether Apple's own AutoFill popup (codes from Messages) is on screen.
+    static func appleAutoFillShowing() -> Bool {
+        let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.contains { window in
+            guard let pid = window[kCGWindowOwnerPID as String] as? pid_t else { return false }
+            var path = [CChar](repeating: 0, count: 4096)
+            return proc_pidpath(pid, &path, UInt32(path.count)) > 0 && PasteGuard.isAppleAutoFill(ownerPath: String(cString: path))
+        }
+    }
+
     private static func focusedElement() -> AXUIElement? {
         guard AXIsProcessTrusted() else { return nil }
         var focused: AnyObject?

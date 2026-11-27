@@ -269,6 +269,23 @@ class ForkEmailCodeTests: XCTestCase {
     }
 }
 
+// Fork: Apple's AutoFill goes first; a code that lands in the field is marked done
+class ForkAppleAutoFillTests: XCTestCase {
+    func testRecognisesApplesAutoFillHelper() {
+        XCTAssertTrue(PasteGuard.isAppleAutoFill(ownerPath: "/System/Library/PrivateFrameworks/SafariPlatformSupport.framework/Versions/A/XPCServices/com.apple.SafariPlatformSupport.Helper.xpc/Contents/MacOS/com.apple.SafariPlatformSupport.Helper"))
+        XCTAssertFalse(PasteGuard.isAppleAutoFill(ownerPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"))
+    }
+
+    func testFieldHasCode() {
+        XCTAssertTrue(PasteGuard.fieldHasCode("656600", code: "656600"))
+        XCTAssertTrue(PasteGuard.fieldHasCode("656 600", code: "656-600"))
+        XCTAssertTrue(PasteGuard.fieldHasCode("g-12345", code: "G-12345"))
+        XCTAssertFalse(PasteGuard.fieldHasCode("65660", code: "656600")) // still typing
+        XCTAssertFalse(PasteGuard.fieldHasCode(nil, code: "656600"))
+        XCTAssertFalse(PasteGuard.fieldHasCode("anything", code: ""))
+    }
+}
+
 // Fork: finding the code's conversation row in Messages.app
 class ForkMessagesReadMarkerTests: XCTestCase {
     let bofa = "<#>BofA: DO NOT share this code. Code 656600. We NEVER call or text for it. Reply HELP if you didn't request it."
